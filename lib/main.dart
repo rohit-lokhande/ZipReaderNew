@@ -5,7 +5,9 @@ import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_archive/flutter_archive.dart';
+import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf_viewer_plugin/pdf_viewer_plugin.dart';
 import 'package:shelf_static/shelf_static.dart';
@@ -19,7 +21,10 @@ import 'package:zip_read_new/pdf_viewer.dart';
 const String zipFileName = 'bundle.zip';
 const String extractDirectory = '/extract';
 
-void main() => runApp(const MyApp());
+void main() {
+  runApp(
+      const MyApp());
+}
 
 class MyApp extends StatelessWidget {
   const MyApp({Key? key}) : super(key: key);
@@ -27,11 +32,12 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Zip Extractor',
+      title: 'Scorm',
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
-      home: const MyHomePage(title: 'Zip Extractor'),
+      home: const MyHomePage(title: 'Scorm'),
+      builder: EasyLoading.init(),
     );
   }
 }
@@ -46,21 +52,23 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   late WebViewController _controller;
-  String status = "Download";
 
   @override
   void initState() {
     super.initState();
     if (Platform.isAndroid) WebView.platform = AndroidWebView();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      download();
+    });
+
+
   }
 
   download() async {
-    setState(() {
-      status = "Downloading";
-    });
     var dir = await getApplicationDocumentsDirectory();
-
     final Directory httpDirectory = Directory('${dir.path}/www');
+    EasyLoading.show(status: 'Please wait...');
 
     if (!await httpDirectory.exists()) {
       await httpDirectory.create(recursive: true);
@@ -68,15 +76,33 @@ class _MyHomePageState extends State<MyHomePage> {
     }
 
     var handler = createStaticHandler(httpDirectory.path,
-        defaultDocument: 'index_lms.html',
+        defaultDocument: 'scorm.html',
         serveFilesOutsidePath: true,
         listDirectories: true);
 
-    await runZoned(() async {
-      const String initialUrl = 'http://localhost:8080/index_lms.html';
+    await runZonedGuarded(() async {
+      String initialUrl = 'http://localhost:8080/scorm.html';
+
+      String scormJS =  await rootBundle.loadString('assets/scorm.js');
+      File jsFile = await File('${httpDirectory.path}/scorm.js').create();
+      await jsFile.writeAsString(scormJS);
+
+      String scormHtml = await rootBundle.loadString('assets/scorm.html');
+      String updatedHTML =  scormHtml.replaceAll('<iframe name="course" id="courseFrame" width="100%" height="100%" src="" frameborder="0"',
+          '<iframe name="course" id="courseFrame" width="100%" height="100%" src="/index_lms.html" frameborder="0"');
+
+      File htmlFile = await File('${httpDirectory.path}/scorm.html').create();
+      await htmlFile.writeAsString(updatedHTML);
+
       io.serve(handler, 'localhost', 8080);
       _controller.loadUrl(initialUrl);
-    }, onError: (e, stackTrace) => print('Error occured : $e $stackTrace'));
+
+
+EasyLoading.dismiss();
+    }, (error, stack) {
+      print('Error occured : $error $stack');
+    });
+
   }
 
   @override
@@ -84,9 +110,17 @@ class _MyHomePageState extends State<MyHomePage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
+        // actions: [
+        //   IconButton(
+        //     onPressed: (){
+        //       download();
+        //     },
+        //     icon: const Icon(Icons.download),
+        //   )
+        // ],
       ),
       body: WebView(
-        initialUrl: 'https://www.google.co.in/',
+        initialUrl: 'about:blank',
         javascriptMode: JavascriptMode.unrestricted,
         debuggingEnabled: true,
         allowsInlineMediaPlayback: true,
@@ -107,96 +141,7 @@ class _MyHomePageState extends State<MyHomePage> {
             return NavigationDecision.prevent;
           }
           return NavigationDecision.navigate;
-        },
-        onPageStarted: (page) {
-          print(page);
-        },
-      ),
-      floatingActionButton: Padding(
-        padding: const EdgeInsets.all(8.0),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            GestureDetector(
-              onTap: () {
-                _controller.goBack();
-              },
-              child: Row(
-                children: [
-                  Container(
-                    height: 40,
-                    width: 80,
-                    decoration: BoxDecoration(
-                        color: Colors.blueAccent,
-                        borderRadius: BorderRadius.circular(6)),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: const [
-                        Icon(
-                          Icons.arrow_back,
-                          color: Colors.white,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            GestureDetector(
-              onTap: () {
-                _controller.goForward();
-              },
-              child: Row(
-                children: [
-                  Container(
-                    height: 40,
-                    width: 80,
-                    decoration: BoxDecoration(
-                        color: Colors.blueAccent,
-                        borderRadius: BorderRadius.circular(6)),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: const [
-                        Icon(
-                          Icons.arrow_forward,
-                          color: Colors.white,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            GestureDetector(
-              onTap: download,
-              child: Row(
-                children: [
-                  Container(
-                    height: 40,
-                    width: 140,
-                    decoration: BoxDecoration(
-                        color: Colors.blueAccent,
-                        borderRadius: BorderRadius.circular(6)),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          status,
-                          style: const TextStyle(
-                              color: Colors.white, fontWeight: FontWeight.w600),
-                        ),
-                        const Icon(
-                          Icons.download,
-                          color: Colors.white,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+        }
       ),
     );
   }
@@ -216,28 +161,4 @@ class _MyHomePageState extends State<MyHomePage> {
       }
     }
   }
-
-/*  Future<XmlDocument> getManifestFile(String directory) async {
-    File mainFest = File("$directory/imsmanifest.xml");
-    XmlDocument document = XmlDocument.parse(mainFest.readAsStringSync());
-    return document;
-  }*/
-
-/*
-  String getIndexFileName(XmlDocument manifestFile) {
-    String name = '';
-    var data = manifestFile.findAllElements('resources');
-    for (var element in data) {
-      var child = element.findAllElements('resource');
-      for (var ch in child) {
-        var attribute = ch.attributes.firstWhere((p0) {
-          return p0.name == XmlName("href");
-        });
-        name = attribute.value;
-        break;
-      }
-    }
-    return name;
-  }
-*/
 }
